@@ -1,0 +1,47 @@
+---
+- name: "How to find all other IP-addresses in a play"
+  hosts: all
+  become: true
+  tasks:
+    # We'll begin by listing all hosts in the play as they are defined in
+    # the inventory file.
+    #
+    # See: - https://docs.ansible.com/ansible/latest/reference_appendices/special_variables.html#term-ansible_play_hosts
+    #      - https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_loops.html
+    - name: "List all other hosts in the play"
+      ansible.builtin.debug:
+        msg: "{{ item }}"
+      loop: "{{ ansible_play_hosts }}"
+    # The above task will list all hosts in the play, including the current
+    # host. If you want to exclude the current host, you can use the
+    # `difference` filter to remove the current host from the list of hosts.
+    #
+    # See: - https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_filters.html#selecting-from-sets-or-lists-set-theory
+    - name: "List all other hosts in the play, excluding the current host"
+      ansible.builtin.debug:
+        msg: "{{ item }}"
+      loop: "{{ ansible_play_hosts | difference([inventory_hostname]) }}"
+    # Most of us use IPs in the inventory file, but you can also use hostnames.
+    # If you want to list all IP-addresses in the play, you can use the
+    # `hostvars` lookup to get the IP-address of each host.
+    #
+    # See: - https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_vars_facts.html
+    #      - https://www.redhat.com/sysadmin/hostvars-magic-variable-ansible
+    #      - https://admantium.medium.com/ansible-working-with-variables-and-hostvars-479c9d3f4f54
+    - name: "List all other host IPs in the play, excluding the current host"
+      ansible.builtin.debug:
+        msg: "{{ hostvars[item]['ansible_default_ipv4'].address }}"
+      loop: "{{ ansible_play_hosts | difference([inventory_hostname]) }}"
+    # The above is getting a bit complicated..,
+    # One way to simplify this is to store all relevant IPs above in a fact. We
+    # can then use this fact in other tasks without having to think about how
+    # it was created at that point.
+    #
+    # See: - https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_vars_facts.html
+    - name: "Store all other host IPs in the play as a fact named other_ips"
+      ansible.builtin.set_fact:
+        other_ips: "{{ other_ips | default([]) + [hostvars[item]['ansible_default_ipv4'].address] }}"
+      loop: "{{ ansible_play_hosts | difference([inventory_hostname]) }}"
+    - name: "Lets print the other_ips to see how we can use it in other tasks"
+      ansible.builtin.debug:
+        msg: "other_ips is: {{ other_ips }}"

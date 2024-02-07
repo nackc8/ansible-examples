@@ -1,0 +1,77 @@
+##
+## This playbook will show how to publish known_hosts lines from a host as a
+## fact. It will then show how to use the fact in a loop to create a known_hosts
+## file on all hosts in the play.
+##
+---
+- name: "How to find all other IP-addresses in a play"
+  hosts: all
+  become: true
+  tasks:
+    # Read the script 'ex2_1_known_hosts_lines.sh' to understand ssh-keyscan and
+    # what the -H option does.
+    #
+    # We use ansible_default_ipv4 (a magick variable) to get the IP-address of
+    # the current host.
+    #
+    # We then use ssh-keyscan to generate the lines other hosts need to add to
+    # their known_hosts file to be able to connect to the current host. We save
+    # the output of ssh-keyscan in a variable called keyscan_output using
+    # register
+    #
+    # By setting changed_when: false we tell Ansible that the task is not
+    # supposed to change anything on the host.\
+    #
+    # See: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+    # See: https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#registering-variables
+    # See: https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_error_handling.html#defining-changed
+    - name: Create variable from the output of ssh-keyscan
+      ansible.builtin.command:
+        cmd: "ssh-keyscan -H {{ ansible_default_ipv4.address }} }}"
+      changed_when: false
+      register: keyscan_output
+    # We use the set_fact module to create a fact that can be used on other
+    # hosts called known_hosts_lines. We set the fact to the output of
+    # ssh-keyscan. We use the stdout_lines attribute of the keyscan_output
+    # variable to get the standard output of the ssh-keyscan command as a list
+    # of lines.
+    #
+    # See: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/set_fact_module.html
+    - name: Publish the output of ssh-keyscan to all other hosts
+      ansible.builtin.set_fact:
+        known_hosts_lines: "{{ keyscan_output.stdout_lines }}"
+    # We use the lineinfile module to add the lines from the known_hosts_lines
+    # fact to the known_hosts file of all other hosts in the play.
+    #
+    # A loop is used to iterate over all other hosts in the play. We use the
+    # ansible_play_hosts magic variable to get a list of all hosts in the play.
+    # We then use the difference filter to remove the current host from the
+    # list. We then use the map filter to get the hostvars the hosts and
+    # extract the known_hosts_lines fact from them. We then use the flatten
+    # filter to flatten the list of lists into a single list.
+    #
+    # We use the lineinfile module to add the lines from the known_hosts_lines
+    # fact to the known_hosts file of all other hosts in the play. The item
+    # attribute of the loop is used to get the current line from the list of
+    # known_hosts_lines.
+    #
+    # In the search_string attribute we use a regular expression to find the
+    # line in the known_hosts file that contains the encryption and the
+    # fingerprint of the host. That way we can replace the line if it already
+    # exists in the file.
+    #
+    # See: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html
+    # See: https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html#difference
+    # See: https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html#map
+    # See: https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html#extract
+    # See: https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html#flatten
+    - name: Add known_hosts lines to all other hosts
+      ansible.builtin.lineinfile:
+        path: /home/sync2/.ssh/known_hosts
+        search_string: "{{ item | regex_search('\\S+ \\S+$') }}"
+        owner: sync2
+        group: sync2
+        mode: "0600"
+        line: "{{ item }}"
+        create: true
+      loop: "{{ ansible_play_hosts | difference([inventory_hostname]) | map('extract', hostvars) | map(attribute='known_hosts_lines') | flatten }}"
